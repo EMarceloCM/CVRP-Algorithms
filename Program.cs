@@ -1,4 +1,4 @@
-﻿using CVRP.ALNS;
+using CVRP.ALNS;
 using CVRP.Ant_Colony;
 using CVRP.GeneticAlgorithm;
 using CVRP.Grasp;
@@ -8,8 +8,10 @@ using CVRP.Nearest_Neighbor;
 using CVRP.Savings;
 using CVRP.Tabu_Search;
 using CVRP.Utils;
+using System.Diagnostics;
 
 string instancePath = "cvrp_instance.txt";
+//string mediumInstancePath = "cvrp_medium_instance.txt";
 //string bigInstancePath = "cvrp_big_instance.txt";
 
 ProblemData instanceData = InstanceReader.Read(instancePath);
@@ -31,8 +33,11 @@ for (int i = 0; i < instanceData.Distances.GetLength(0); i++)
 // Métodos para instancias médias (50-200 clientes)
 // Savings
 // S(i,j) = d(0,i) + d(0,j) - d(i,j) , onde d é a distancia de um ponto ao outro
-SavingsAlgorithm savings = new(instanceData);
-var savingsResult = savings.Execute();
+Stopwatch stopwatch = new Stopwatch();
+stopwatch.Start();
+//SavingsAlgorithm savings = new(instanceData);
+//var savingsResult = savings.Execute();
+
 // Insertion
 // IC(from, client, to) = IC(from, client) + IC(client, to) - IC(from, to);
 //InsertionAlgorithm insertion = new(instanceData);
@@ -46,8 +51,8 @@ var savingsResult = savings.Execute();
 //GeneticAlgorithm geneticAlgorithm = new(instanceData);
 //var geneticResult = geneticAlgorithm.Solve();
 // Ant Colony Optimization
-// AntColonyOptimization antColony = new(instanceData);
-// var antResult = antColony.FindSolution();
+ AntColonyOptimization antColony = new(instanceData);
+ var antResult = antColony.FindSolution();
 // Tabu Search
 //TabuSearch tabuSearch = new(instanceData);
 //var tabuResult = tabuSearch.Solve();
@@ -67,5 +72,6 @@ var savingsResult = savings.Execute();
 // Grasp
 // Grasp grasp = new();
 // var graspResult = grasp.Solve(instanceData);
-
+stopwatch.Stop();
+Console.WriteLine("Tempo de execução: " + stopwatch.ElapsedMilliseconds + " ms");
 // Utilizar o resultado prévio das heurísticas aqui para aprimorar utilizando as meta-heurísticas
