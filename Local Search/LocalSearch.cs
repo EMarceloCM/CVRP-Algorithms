@@ -1,128 +1,118 @@
-﻿using CVRP.Utils;
+using CVRP.Utils;
 
 namespace CVRP.Local_Search;
 
 public class LocalSearch
 {
-    private Random _random = new();
+    private Random _random = new Random();
+    private const double tolerance = 1e-6;
 
-    public List<List<int>> ImproveSolution(ProblemData problemData, List<List<int>> initialSolution, string initialSolutionAlgorithm, int maxIterations = 100)
+    /// <summary>
+    /// Realiza a busca local para melhorar a solução inicial.
+    /// O algoritmo varre de forma sistemática as possibilidades de troca (swap) e inversão (inversion)
+    /// e aplica o movimento que produzir a maior melhoria no custo total (distância).
+    /// </summary>
+    public List<List<int>> ImproveSolution(ProblemData problemData, List<List<int>> initialSolution, string originName, int maxIterations = 100)
     {
         var currentSolution = CloneSolution(initialSolution);
-        bool improvementFound = true;
         int iteration = 0;
+        bool improvementFound;
 
-        while (improvementFound && iteration < maxIterations)
+        do
         {
             improvementFound = false;
-            improvementFound = improvementFound || TrySwapClients(currentSolution, problemData);
-            improvementFound = improvementFound || TryInvertRouteSegment(currentSolution, problemData);
+            double bestImprovement = 0;
+            List<List<int>> bestCandidate = null;
+
+            for (int r1 = 0; r1 < currentSolution.Count; r1++)
+            {
+                for (int r2 = r1; r2 < currentSolution.Count; r2++)
+                {
+                    if (currentSolution[r1].Count > 2 && currentSolution[r2].Count > 2)
+                    {
+                        int startIndexR1 = 1;
+                        int endIndexR1 = currentSolution[r1].Count - 1;
+                        int startIndexR2 = 1;
+                        int endIndexR2 = currentSolution[r2].Count - 1;
+
+                        for (int i = startIndexR1; i < endIndexR1; i++)
+                        {
+                            for (int j = startIndexR2; j < endIndexR2; j++)
+                            {
+                                if (r1 == r2 && i == j) continue;
+
+                                var candidate = CloneSolution(currentSolution);
+                                int temp = candidate[r1][i];
+                                candidate[r1][i] = candidate[r2][j];
+                                candidate[r2][j] = temp;
+
+                                if (IsFeasible(candidate, problemData))
+                                {
+                                    double currentCost = CalculateTotalDistance(currentSolution, problemData);
+                                    double candidateCost = CalculateTotalDistance(candidate, problemData);
+                                    double improvement = currentCost - candidateCost;
+                                    if (improvement > bestImprovement + tolerance)
+                                    {
+                                        bestImprovement = improvement;
+                                        bestCandidate = candidate;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (int r = 0; r < currentSolution.Count; r++)
+            {
+                if (currentSolution[r].Count > 3)
+                {
+                    for (int start = 1; start < currentSolution[r].Count - 2; start++)
+                    {
+                        for (int end = start + 1; end < currentSolution[r].Count - 1; end++)
+                        {
+                            var candidate = CloneSolution(currentSolution);
+                            var segment = candidate[r].GetRange(start, end - start + 1);
+                            segment.Reverse();
+                            candidate[r].RemoveRange(start, end - start + 1);
+                            candidate[r].InsertRange(start, segment);
+
+                            if (IsFeasible(candidate, problemData))
+                            {
+                                double currentCost = CalculateTotalDistance(currentSolution, problemData);
+                                double candidateCost = CalculateTotalDistance(candidate, problemData);
+                                double improvement = currentCost - candidateCost;
+                                if (improvement > bestImprovement + tolerance)
+                                {
+                                    bestImprovement = improvement;
+                                    bestCandidate = candidate;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (bestCandidate != null)
+            {
+                currentSolution = bestCandidate;
+                improvementFound = true;
+            }
 
             iteration++;
-        }
 
-        /*Console.WriteLine("\n--------------------------------------------------------");
-        Console.WriteLine($"Rotas geradas (Busca Local + {initialSolutionAlgorithm}):");
-
-        for (int i = 0; i < currentSolution.Count; i++)
-        {
-            var route = currentSolution[i];
-
-            if (route.Count > 1 && route.All(client => client == 0))
-            {
-                continue;
-            }
-
-            if (route.Count > 1)
-            {
-                Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", route)}");
-            }
-        }
-
-        Console.WriteLine($"Distância total percorrida: {CalculateTotalDistance(currentSolution, problemData)}");*/
+        } while (improvementFound && iteration < maxIterations);
 
         return currentSolution;
     }
 
-    private bool TrySwapClients(List<List<int>> solution, ProblemData problemData)
+    private bool IsFeasible(List<List<int>> solution, ProblemData problemData)
     {
-        int route1Index = _random.Next(solution.Count);
-        int route2Index = _random.Next(solution.Count);
-
-        if (route1Index == route2Index || solution[route1Index].Count <= 1 || solution[route2Index].Count <= 1)
-            return false;
-
-        int client1Index = GetRandomClientIndex(solution[route1Index]);
-        int client2Index = GetRandomClientIndex(solution[route2Index]);
-
-        int client1 = solution[route1Index][client1Index];
-        int client2 = solution[route2Index][client2Index];
-
-        var previousSolution = CloneSolution(solution);
-        solution[route1Index][client1Index] = client2;
-        solution[route2Index][client2Index] = client1;
-
-        if (IsValidSolution(solution, problemData, previousSolution))
-        {
-            return true;
-        }
-        else
-        {
-            solution[route1Index][client1Index] = client1;
-            solution[route2Index][client2Index] = client2;
-            return false;
-        }
-    }
-
-    private bool TryInvertRouteSegment(List<List<int>> solution, ProblemData problemData)
-    {
-        int routeIndex = _random.Next(solution.Count);
-        if (solution[routeIndex].Count <= 3) return false;
-
-        int start = _random.Next(1, solution[routeIndex].Count - 2);
-        int end = _random.Next(start + 1, solution[routeIndex].Count - 1);
-
-        var previousSolution = CloneSolution(solution);
-        var segment = solution[routeIndex].GetRange(start, end - start + 1);
-        segment.Reverse();
-        solution[routeIndex].RemoveRange(start, end - start + 1);
-        solution[routeIndex].InsertRange(start, segment);
-
-        if (IsValidSolution(solution, problemData, previousSolution))
-        {
-            return true;
-        }
-        else
-        {
-            segment.Reverse();
-            solution[routeIndex].RemoveRange(start, segment.Count);
-            solution[routeIndex].InsertRange(start, segment);
-            return false;
-        }
-    }
-
-    private int GetRandomClientIndex(List<int> route)
-    {
-        return _random.Next(1, route.Count - 1);
-    }
-
-    private bool IsValidSolution(List<List<int>> solution, ProblemData problemData, List<List<int>> previousSolution)
-    {
-        double previousTotalDistance = CalculateTotalDistance(previousSolution, problemData);
-        double currentTotalDistance = CalculateTotalDistance(solution, problemData);
-
-        if (currentTotalDistance > previousTotalDistance)
-        {
-            return false;
-        }
-
         foreach (var route in solution)
         {
-            double totalDemand = route.Sum(c => problemData.ClientDemand[c > 0 ? c - 1 : 0]);
-            if (totalDemand/2 > problemData.VehiclesCapacity)
-            {
+            double totalDemand = route.Where(c => c != 0).Sum(c => problemData.ClientDemand[c - 1]);
+            if (totalDemand > problemData.VehiclesCapacity)
                 return false;
-            }
         }
         return true;
     }
@@ -143,5 +133,16 @@ public class LocalSearch
     private List<List<int>> CloneSolution(List<List<int>> solution)
     {
         return solution.Select(route => new List<int>(route)).ToList();
+    }
+
+    public void PrintSolution(List<List<int>> solution, ProblemData problemData)
+    {
+        double totalDistance = CalculateTotalDistance(solution, problemData);
+        Console.WriteLine("Rotas aprimoradas:");
+        for (int i = 0; i < solution.Count; i++)
+        {
+            Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", solution[i])}");
+        }
+        Console.WriteLine($"Distância total percorrida: {totalDistance:F2}");
     }
 }
