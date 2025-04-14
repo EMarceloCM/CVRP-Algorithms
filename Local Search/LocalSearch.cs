@@ -1,4 +1,7 @@
 using CVRP.Utils;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace CVRP.Local_Search;
 
@@ -12,7 +15,7 @@ public class LocalSearch
     /// O algoritmo varre de forma sistemática as possibilidades de troca (swap) e inversão (inversion)
     /// e aplica o movimento que produzir a maior melhoria no custo total (distância).
     /// </summary>
-    public List<List<int>> ImproveSolution(ProblemData problemData, List<List<int>> initialSolution, string originName, int maxIterations = 100)
+    public List<List<int>> ImproveSolution(ProblemData problemData, List<List<int>> initialSolution, int maxIterations = 100)
     {
         var currentSolution = CloneSolution(initialSolution);
         int iteration = 0;
