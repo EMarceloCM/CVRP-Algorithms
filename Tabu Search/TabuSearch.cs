@@ -1,175 +1,194 @@
-﻿using CVRP.Utils;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using CVRP.Utils;
 
-namespace CVRP.Tabu_Search;
-
-public class TabuSearch(ProblemData instance)
+namespace CVRP.Tabu_Search
 {
-    private ProblemData instance = instance;
-    private int _tabuTenure = 10;
-    private int _maxIterations = 500;
+    public enum MoveType { Swap, Relocate, TwoOpt }
 
-    public List<List<int>> Solve()
+    public struct MoveKey : IEquatable<MoveKey>
     {
-        var initialSolution = GenerateInitialSolution();
-        var bestSolution = CloneSolution(initialSolution);
-        var currentSolution = CloneSolution(initialSolution);
-        var tabuList = new Queue<(int, int)>();
-
-        for (int iteration = 0; iteration < _maxIterations; iteration++)
+        public MoveType Type;
+        public int R1, I1, R2, I2;
+        public MoveKey(MoveType type, int r1, int i1, int r2, int i2)
         {
-            var neighborhood = GenerateNeighborhood(currentSolution, tabuList);
-
-            if (neighborhood.Count == 0)
-                break;
-
-            var bestNeighbor = neighborhood.OrderBy(neighbor => CalculateTotalDistance(neighbor)).FirstOrDefault();
-
-            if (CalculateTotalDistance(bestNeighbor) < CalculateTotalDistance(bestSolution))
-            {
-                bestSolution = CloneSolution(bestNeighbor);
-            }
-
-            currentSolution = CloneSolution(bestNeighbor);
-
-            UpdateTabuList(tabuList, currentSolution);
-
-            // Console.WriteLine($"Iteração {iteration + 1}: Melhor distância = {CalculateTotalDistance(bestSolution)}");
+            Type = type; R1 = r1; I1 = i1; R2 = r2; I2 = i2;
         }
-
-        PrintSolution(bestSolution);
-        CalculateTotalDistance(bestSolution);
-        return bestSolution;
+        public bool Equals(MoveKey other) => Type == other.Type && R1 == other.R1 && I1 == other.I1 && R2 == other.R2 && I2 == other.I2;
+        public override bool Equals(object obj) => obj is MoveKey m && Equals(m);
+        public override int GetHashCode() => HashCode.Combine(Type, R1, I1, R2, I2);
     }
 
-    private List<List<int>> GenerateInitialSolution()
+    public class TabuSearch
     {
-        var initialSolution = new List<List<int>>();
-        var unvisitedClients = new HashSet<int>(Enumerable.Range(1, instance.ClientDemand.Length));
-        var currentRoute = new List<int> { 0 };
-        double currentLoad = 0;
+        private ProblemData instance;
+        private int tabuTenure = 50;
+        private int maxIterations = 1000;
+        private Dictionary<MoveKey, int> tabuList = new Dictionary<MoveKey, int>();
 
-        while (unvisitedClients.Count != 0)
+        public TabuSearch(ProblemData instance)
         {
-            var nextClient = unvisitedClients.First();
-            var demand = instance.ClientDemand[nextClient - 1];
-
-            if (currentLoad + demand <= instance.VehiclesCapacity)
-            {
-                currentRoute.Add(nextClient);
-                currentLoad += demand;
-                unvisitedClients.Remove(nextClient);
-            }
-            else
-            {
-                currentRoute.Add(0);
-                initialSolution.Add(currentRoute);
-                currentRoute = new List<int> { 0 };
-                currentLoad = 0;
-            }
+            this.instance = instance;
         }
 
-        currentRoute.Add(0);
-        initialSolution.Add(currentRoute);
-        return initialSolution;
-    }
-
-    private List<List<List<int>>> GenerateNeighborhood(List<List<int>> solution, Queue<(int, int)> tabuList)
-    {
-        var neighborhood = new List<List<List<int>>>();
-
-        for (int r = 0; r < solution.Count; r++)
+        public List<List<int>> Solve()
         {
-            var route = solution[r];
+            var best = GenerateInitialSolution();
+            var current = CloneSolution(best);
+            double bestCost = CalculateTotalDistance(best);
 
-            for (int i = 1; i < route.Count - 1; i++)
+            for (int iter = 0; iter < maxIterations; iter++)
             {
-                for (int j = i + 1; j < route.Count - 1; j++)
+                var neighborhood = GenerateNeighborhood(current, bestCost, iter);
+                if (neighborhood.Count == 0) break;
+
+                var (next, move) = neighborhood.OrderBy(n => CalculateTotalDistance(n.solution)).First();
+                double nextCost = CalculateTotalDistance(next);
+                current = CloneSolution(next);
+
+                if (nextCost < bestCost)
                 {
-                    if (tabuList.Contains((route[i], route[j])))
-                        continue;
+                    best = CloneSolution(next);
+                    bestCost = nextCost;
+                }
 
-                    var neighbor = CloneSolution(solution);
-                    (neighbor[r][i], neighbor[r][j]) = (neighbor[r][j], neighbor[r][i]);
+                tabuList[move] = iter + tabuTenure;
+            }
 
-                    if (IsValidSolution(neighbor))
-                        neighborhood.Add(neighbor);
+            PrintSolution(best);
+            return best;
+        }
+
+        private List<List<int>> GenerateInitialSolution()
+        {
+            var unvisited = new HashSet<int>(Enumerable.Range(1, instance.ClientDemand.Length));
+            var solution = new List<List<int>>();
+
+            while (unvisited.Count > 0)
+            {
+                var route = new List<int> { 0 };
+                double load = 0;
+                int last = 0;
+
+                while (true)
+                {
+                    var next = unvisited.OrderBy(c => instance.Distances[last, c]).FirstOrDefault();
+                    if (next == 0) break;
+                    double d = instance.ClientDemand[next - 1];
+                    if (load + d > instance.VehiclesCapacity) break;
+                    route.Add(next);
+                    load += d;
+                    unvisited.Remove(next);
+                    last = next;
+                }
+
+                route.Add(0);
+                solution.Add(route);
+            }
+            return solution;
+        }
+
+        private List<(List<List<int>> solution, MoveKey move)> GenerateNeighborhood(List<List<int>> current, double bestCost, int iter)
+        {
+            var moves = new List<(List<List<int>>, MoveKey)>();
+
+            int R = current.Count;
+            for (int r1 = 0; r1 < R; r1++)
+            {
+                var route1 = current[r1];
+                int L1 = route1.Count;
+                for (int i = 1; i < L1 - 1; i++)
+                {
+                    // Relocate
+                    for (int r2 = 0; r2 < R; r2++)
+                    {
+                        var route2 = current[r2];
+                        int L2 = route2.Count;
+                        if (r1 == r2) continue;
+                        for (int j = 1; j < L2; j++)
+                        {
+                            var temp = CloneSolution(current);
+                            int client = temp[r1][i];
+                            temp[r1].RemoveAt(i);
+                            temp[r2].Insert(j, client);
+                            if (!IsValidSolution(temp)) continue;
+                            var key = new MoveKey(MoveType.Relocate, r1, i, r2, j);
+                            if (IsTabu(key, iter, CalculateTotalDistance(temp), bestCost)) continue;
+                            moves.Add((temp, key));
+                        }
+                    }
+                    // Swap
+                    for (int r2 = r1; r2 < R; r2++)
+                    {
+                        var route2 = current[r2];
+                        int L2 = route2.Count;
+                        int startJ = r1 == r2 ? i + 1 : 1;
+                        for (int j = startJ; j < L2 - 1; j++)
+                        {
+                            var temp = CloneSolution(current);
+                            (temp[r1][i], temp[r2][j]) = (temp[r2][j], temp[r1][i]);
+                            if (!IsValidSolution(temp)) continue;
+                            var key = new MoveKey(MoveType.Swap, r1, i, r2, j);
+                            if (IsTabu(key, iter, CalculateTotalDistance(temp), bestCost)) continue;
+                            moves.Add((temp, key));
+                        }
+                    }
+                    // TwoOpt
+                    for (int j = i + 2; j < L1 - 1; j++)
+                    {
+                        var temp = CloneSolution(current);
+                        temp[r1].Reverse(i, j - i + 1);
+                        if (!IsValidSolution(temp)) continue;
+                        var key = new MoveKey(MoveType.TwoOpt, r1, i, r1, j);
+                        if (IsTabu(key, iter, CalculateTotalDistance(temp), bestCost)) continue;
+                        moves.Add((temp, key));
+                    }
                 }
             }
+            return moves;
         }
 
-        return neighborhood;
-    }
-
-
-    private void UpdateTabuList(Queue<(int, int)> tabuList, List<List<int>> solution)
-    {
-        foreach (var route in solution)
+        private bool IsTabu(MoveKey key, int iter, double cost, double bestCost)
         {
-            for (int i = 1; i < route.Count - 1; i++)
+            if (tabuList.TryGetValue(key, out int expiration) && iter < expiration)
+                return cost >= bestCost;
+            return false;
+        }
+
+        private bool IsValidSolution(List<List<int>> sol)
+        {
+            foreach (var route in sol)
             {
-                tabuList.Enqueue((route[i], route[i + 1]));
-                if (tabuList.Count > _tabuTenure)
+                double load = 0;
+                for (int i = 1; i < route.Count - 1; i++)
                 {
-                    tabuList.Dequeue();
+                    load += instance.ClientDemand[route[i] - 1];
+                    if (load > instance.VehiclesCapacity) return false;
                 }
             }
+            return true;
         }
-    }
 
-    private bool IsValidSolution(List<List<int>> solution)
-    {
-        foreach (var route in solution)
+        private double CalculateTotalDistance(List<List<int>> sol)
         {
-            double load = 0;
-            foreach (var client in route.Skip(1).Take(route.Count - 2))
-            {
-                load += instance.ClientDemand[client - 1];
-                if (load > instance.VehiclesCapacity)
-                    return false;
-            }
+            double dist = 0;
+            foreach (var route in sol)
+                for (int i = 0; i < route.Count - 1; i++)
+                    dist += instance.Distances[route[i], route[i + 1]];
+            return dist;
         }
 
-        return true;
-    }
-
-    private double CalculateTotalDistance(List<List<int>> solution)
-    {
-        double totalDistance = 0;
-
-        foreach (var route in solution)
+        private List<List<int>> CloneSolution(List<List<int>> sol)
         {
-            for (int i = 0; i < route.Count - 1; i++)
-            {
-                totalDistance += instance.Distances[route[i], route[i + 1]];
-            }
+            return sol.Select(r => new List<int>(r)).ToList();
         }
 
-        return totalDistance;
-    }
-
-    private List<List<int>> CloneSolution(List<List<int>> solution)
-    {
-        return solution.Select(route => new List<int>(route)).ToList();
-    }
-
-    private void PrintSolution(List<List<int>> solution)
-    {
-        Console.WriteLine("\n--------------------------------------------------------");
-        Console.WriteLine("Melhor solução encontrada (Tabu Search):");
-
-        for (int i = 0; i < solution.Count; i++)
+        private void PrintSolution(List<List<int>> sol)
         {
-            Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", solution[i])}");
+            Console.WriteLine("\n----- Tabu Search Solution -----");
+            for (int i = 0; i < sol.Count; i++) Console.WriteLine($"Route {i + 1}: {string.Join(" -> ", sol[i])}");
+            Console.WriteLine($"Total distance: {CalculateTotalDistance(sol)}");
         }
-
-        double totalDistance = 0;
-        foreach (var route in solution)
-        {
-            for (int i = 0; i < route.Count - 1; i++)
-            {
-                totalDistance += instance.Distances[route[i], route[i + 1]];
-            }
-        }
-        Console.WriteLine($"Distância total percorrida: {totalDistance}");
     }
 }
