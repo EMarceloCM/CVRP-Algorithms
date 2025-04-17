@@ -16,52 +16,35 @@ namespace CVRP.ALNS
             double initialTemperature = 5000.0,
             double coolingRate = 0.7)
         {
-            var currentSolution = InitializeSolution(problemData);
+            var currentSolution = GreedyInsertion(new List<List<int>>(), problemData, randomized: true);
             var bestSolution = CloneSolution(currentSolution);
             double currentTemperature = initialTemperature;
             int noImprovementCounter = 0;
 
-            for (int iteration = 0; iteration < maxIterations && noImprovementCounter < maxNoImprovement; iteration++)
+            for (int iter = 0; iter < maxIterations && noImprovementCounter < maxNoImprovement; iter++)
             {
-                int numClientsToRemove = Math.Max(10, (int)(0.1 * problemData.NumberOfClients));
-                var partialSolution = SmartRemoval(currentSolution, problemData, numClientsToRemove);
+                int numToRemove = Math.Max(5, (int)(0.2 * problemData.NumberOfClients));
+                var partial = RandomRemoval(currentSolution, numToRemove);
+                var candidate = GreedyInsertion(partial, problemData);
 
-                var newSolution = GreedyInsertion(partialSolution, problemData);
-
-                if (IsValidSolution(newSolution, problemData)
-                    && AcceptSolution(currentSolution, newSolution, currentTemperature, problemData))
+                if (IsValidSolution(candidate, problemData) &&
+                    AcceptSolution(currentSolution, candidate, currentTemperature, problemData))
                 {
-                    currentSolution = CloneSolution(newSolution);
-
-                    double currDist = CalculateTotalDistance(currentSolution, problemData);
-                    double bestDist = CalculateTotalDistance(bestSolution, problemData);
-                    if (currDist < bestDist)
+                    currentSolution = CloneSolution(candidate);
+                    if (CalculateTotalDistance(currentSolution, problemData) <
+                        CalculateTotalDistance(bestSolution, problemData))
                     {
                         bestSolution = CloneSolution(currentSolution);
                         noImprovementCounter = 0;
                     }
-                    else
-                    {
-                        noImprovementCounter++;
-                    }
+                    else noImprovementCounter++;
                 }
-                else
-                {
-                    noImprovementCounter++;
-                }
+                else noImprovementCounter++;
 
                 currentTemperature *= coolingRate;
             }
 
-            // Uma única passagem final que GARANTE inserir todos os clientes
-            bestSolution = GreedyInsertion(bestSolution, problemData);
-
-            // Se ainda restarem clientes, crie rotas unitárias para eles
-            var unassigned = GetUnassignedClients(bestSolution, problemData);
-            foreach (var client in unassigned)
-                bestSolution.Add(new List<int> { 0, client, 0 });
-
-            // Impressão
+            // Impressão do resultado final
             double totalDistance = CalculateTotalDistance(bestSolution, problemData);
             Console.WriteLine("\n--------------------------------------------------------");
             Console.WriteLine("Rotas geradas (ALNS):");
@@ -73,201 +56,97 @@ namespace CVRP.ALNS
             return bestSolution;
         }
 
-        private List<List<int>> InitializeSolution(ProblemData problemData)
+        private List<List<int>> GreedyInsertion(List<List<int>> partial, ProblemData data, bool randomized = false)
         {
-            var sol = new List<List<int>>();
-            for (int v = 0; v < problemData.NumberOfVehicles; v++)
-                sol.Add(new List<int> { 0, 0 });
+            var solution = CloneSolution(partial);
+            var clients = GetUnassignedClients(solution, data);
+            if (randomized) clients = clients.OrderBy(_ => _random.Next()).ToList();
 
-            var unvisited = Enumerable.Range(1, problemData.NumberOfClients)
-                                      .OrderBy(_ => _random.Next())
-                                      .ToList();
-
-            foreach (var client in unvisited)
-            {
-                bool placed = false;
-                double demand = problemData.ClientDemand[client - 1];
-                foreach (var route in sol)
-                {
-                    double load = route.Where(c => c != 0)
-                                       .Sum(c => problemData.ClientDemand[c - 1]);
-                    if (load + demand <= problemData.VehiclesCapacity)
-                    {
-                        route.Insert(route.Count - 1, client);
-                        placed = true;
-                        break;
-                    }
-                }
-                if (!placed)
-                    sol.Add(new List<int> { 0, client, 0 });
-            }
-            return sol;
-        }
-
-        private List<List<int>> RandomRemoval(
-            List<List<int>> solution,
-            ProblemData problemData,
-            int numToRemove)
-        {
-            var mod = CloneSolution(solution);
-            for (int k = 0; k < numToRemove; k++)
-            {
-                int r = _random.Next(mod.Count);
-                if (mod[r].Count > 2)
-                {
-                    int idx = _random.Next(1, mod[r].Count - 1);
-                    mod[r].RemoveAt(idx);
-                }
-            }
-            mod.RemoveAll(route => route.Count <= 2);
-            return mod;
-        }
-
-        private List<List<int>> GreedyInsertion(
-            List<List<int>> partial,
-            ProblemData problemData)
-        {
-            var sol = CloneSolution(partial);
-            var toInsert = GetUnassignedClients(sol, problemData);
-            double epsilon = 0.1;
-
-            foreach (var client in toInsert)
+            foreach (var client in clients)
             {
                 double bestCost = double.MaxValue;
                 int bestR = -1, bestPos = -1;
-                var candidates = new List<(int r, int pos, double cost)>();
 
-                for (int r = 0; r < sol.Count; r++)
+                for (int r = 0; r < solution.Count; r++)
                 {
-                    for (int pos = 1; pos < sol[r].Count; pos++)
+                    double load = solution[r].Where(c => c != 0).Sum(c => data.ClientDemand[c - 1]);
+                    if (load + data.ClientDemand[client - 1] > data.VehiclesCapacity) continue;
+
+                    for (int pos = 1; pos < solution[r].Count; pos++)
                     {
-                        double c = CalculateInsertionCost(sol[r], client, pos, problemData);
-                        candidates.Add((r, pos, c));
-                        if (c < bestCost)
+                        double cost = CalculateInsertionCost(solution[r], client, pos, data);
+                        if (cost < bestCost)
                         {
-                            bestCost = c;
+                            bestCost = cost;
                             bestR = r;
                             bestPos = pos;
                         }
                     }
                 }
 
-                var good = candidates
-                    .Where(x => x.cost <= bestCost * (1 + epsilon))
-                    .ToList();
-
-                if (good.Count > 0)
-                {
-                    var pick = good[_random.Next(good.Count)];
-                    sol[pick.r].Insert(pick.pos, client);
-                }
+                if (bestR != -1)
+                    solution[bestR].Insert(bestPos, client);
                 else
-                {
-                    // fallback: cria rota unitária
-                    sol.Add(new List<int> { 0, client, 0 });
-                }
+                    solution.Add(new List<int> { 0, client, 0 });
             }
 
-            sol.RemoveAll(route => route.Count <= 2);
-            return sol;
+            return solution;
         }
 
-        private double CalculateInsertionCost(
-            List<int> route,
-            int client,
-            int pos,
-            ProblemData problemData)
+        private List<List<int>> RandomRemoval(List<List<int>> solution, int numToRemove)
         {
-            int a = route[pos - 1], b = route[pos];
-            return problemData.Distances[a, client]
-                 + problemData.Distances[client, b]
-                 - problemData.Distances[a, b];
+            var modified = CloneSolution(solution);
+            var clients = modified.SelectMany(r => r).Where(c => c != 0).OrderBy(_ => _random.Next()).Take(numToRemove).ToHashSet();
+
+            for (int i = 0; i < modified.Count; i++)
+                modified[i] = modified[i].Where((c, idx) => idx == 0 || idx == modified[i].Count - 1 || !clients.Contains(c)).ToList();
+
+            modified.RemoveAll(r => r.Count <= 2);
+            return modified;
         }
 
-        private List<int> GetUnassignedClients(
-            List<List<int>> solution,
-            ProblemData problemData)
+        private List<int> GetUnassignedClients(List<List<int>> solution, ProblemData data)
         {
-            var assigned = solution.SelectMany(r => r)
-                                   .Where(c => c != 0)
-                                   .ToHashSet();
-            var all = Enumerable.Range(1, problemData.NumberOfClients);
-            return all.Except(assigned).ToList();
+            var assigned = solution.SelectMany(r => r).Where(c => c != 0).ToHashSet();
+            return Enumerable.Range(1, data.NumberOfClients).Except(assigned).ToList();
         }
 
-        private bool IsValidSolution(
-            List<List<int>> solution,
-            ProblemData problemData)
+        private bool IsValidSolution(List<List<int>> solution, ProblemData data)
         {
             foreach (var route in solution)
             {
-                double load = route.Where(c => c != 0)
-                                   .Sum(c => problemData.ClientDemand[c - 1]);
-                if (load > problemData.VehiclesCapacity)
+                double load = route.Where(c => c != 0).Sum(c => data.ClientDemand[c - 1]);
+                if (load > data.VehiclesCapacity)
                     return false;
             }
             return true;
         }
 
-        private bool AcceptSolution(
-            List<List<int>> curr,
-            List<List<int>> next,
-            double temp,
-            ProblemData problemData)
+        private bool AcceptSolution(List<List<int>> curr, List<List<int>> next, double temp, ProblemData data)
         {
-            double c0 = CalculateTotalDistance(curr, problemData);
-            double c1 = CalculateTotalDistance(next, problemData);
+            double c0 = CalculateTotalDistance(curr, data);
+            double c1 = CalculateTotalDistance(next, data);
             if (c1 < c0) return true;
             double p = Math.Exp((c0 - c1) / temp);
             return _random.NextDouble() < p;
         }
 
-        private double CalculateTotalDistance(
-            List<List<int>> solution,
-            ProblemData problemData)
+        private double CalculateInsertionCost(List<int> route, int client, int pos, ProblemData data)
+        {
+            int a = route[pos - 1], b = route[pos];
+            return data.Distances[a, client] + data.Distances[client, b] - data.Distances[a, b];
+        }
+
+        private double CalculateTotalDistance(List<List<int>> solution, ProblemData data)
         {
             double dist = 0;
             foreach (var route in solution)
                 for (int i = 0; i < route.Count - 1; i++)
-                    dist += problemData.Distances[route[i], route[i + 1]];
+                    dist += data.Distances[route[i], route[i + 1]];
             return dist;
         }
 
         private List<List<int>> CloneSolution(List<List<int>> sol) =>
             sol.Select(r => new List<int>(r)).ToList();
-
-        private List<List<int>> SmartRemoval(List<List<int>> solution, ProblemData problemData, int numClientsToRemove)
-        {
-            var modified = CloneSolution(solution);
-            var allClients = new List<(int client, int routeIndex, int pos)>();
-
-            for (int r = 0; r < modified.Count; r++)
-            {
-                for (int pos = 1; pos < modified[r].Count - 1; pos++)
-                {
-                    allClients.Add((modified[r][pos], r, pos));
-                }
-            }
-
-            if (allClients.Count == 0) return modified;
-
-            var selectedClients = allClients
-                .OrderBy(_ => _random.Next())
-                .Take(numClientsToRemove)
-                .ToList();
-
-            var clientsToRemove = selectedClients.Select(x => x.client).ToHashSet();
-
-            for (int r = 0; r < modified.Count; r++)
-            {
-                modified[r] = modified[r].Where((c, i) =>
-                    i == 0 || i == modified[r].Count - 1 || !clientsToRemove.Contains(c)
-                ).ToList();
-            }
-
-            modified.RemoveAll(route => route.Count <= 2);
-
-            return modified;
-        }
     }
 }
