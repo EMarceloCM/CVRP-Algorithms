@@ -1,59 +1,113 @@
-﻿using CVRP.Utils;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using CVRP.Utils;
 
 namespace CVRP.GeneticAlgorithm;
 
-public class GeneticAlgorithm(ProblemData instance)
+public class GeneticAlgorithm
 {
-    private ProblemData instance = instance;
-    private readonly Random _random = new();
-    private readonly int _populationSize = 100;
-    private readonly int _generations = 1000;
-    private readonly double _mutationRate = 0.1;
+    private readonly ProblemData instance;
+    private readonly Random _rnd = new();
+    private readonly int _popSize = 10000;
+    private readonly int _generations = 9000;
+    private readonly double _mutationRate = 0.35;
+    private readonly int _eliteCount = 25;
+    private readonly int _tournamentSize = 6;
+
+    public GeneticAlgorithm(ProblemData instance)
+    {
+        this.instance = instance;
+    }
 
     public List<List<int>> Solve()
     {
-        List<List<List<int>>> population = InitializePopulation();
-        for (int generation = 0; generation < _generations; generation++)
+        var population = InitializePopulation();
+        double prevBestDist = double.MaxValue;
+
+        for (int gen = 0; gen < _generations; gen++)
         {
-            population = Evolve(population);
+            var nextPop = new List<List<List<int>>>();
+
+            // Elitismo
+            var elites = population.OrderBy(CalculateFitness)
+                                   .Take(_eliteCount)
+                                   .Select(CloneSolution)
+                                   .ToList();
+            nextPop.AddRange(elites);
+
+            // Geração de novos
+            while (nextPop.Count < _popSize)
+            {
+                var p1 = TournamentSelect(population);
+                var p2 = TournamentSelect(population);
+                var child = Crossover(p1, p2);
+
+                if (_rnd.NextDouble() < _mutationRate)
+                    Mutate(child);
+
+                // 2-opt local
+                for (int i = 0; i < child.Count; i++)
+                    child[i] = TwoOpt(child[i]);
+
+                nextPop.Add(child);
+            }
+
+            population = nextPop;
+
+            // Imprime a melhor rota desta geração, se melhorou
+            var bestGen = population.OrderBy(CalculateFitness).First();
+            double bestDist = CalculateFitness(bestGen);
+            if (bestDist < prevBestDist)
+            {
+                Console.WriteLine($"\nGeração {gen + 1} - Nova melhor distância: {bestDist:F2}");
+                PrintRoutes(bestGen);
+                prevBestDist = bestDist;
+            }
         }
 
-        var bestSolution = population.OrderBy(CalculateFitness).First();
-        PrintSolution(bestSolution);
-        return bestSolution;
+        var best = population.OrderBy(CalculateFitness).First();
+        Console.WriteLine("\n=== Solução Final ===");
+        PrintRoutes(best);
+        return best;
     }
 
     private List<List<List<int>>> InitializePopulation()
     {
-        var population = new List<List<List<int>>>();
-        for (int i = 0; i < _populationSize; i++)
+        var pop = new List<List<List<int>>>();
+        for (int i = 0; i < _popSize; i++)
         {
-            var solution = GenerateRandomSolution();
-            population.Add(solution);
+            var sol = GenerateRandomSolution();
+            for (int r = 0; r < sol.Count; r++)
+                sol[r] = TwoOpt(sol[r]);
+            pop.Add(sol);
         }
-        return population;
+        return pop;
     }
 
     private List<List<int>> GenerateRandomSolution()
     {
-        var clients = Enumerable.Range(1, instance.NumberOfClients).OrderBy(_ => _random.Next()).ToList();
+        var clients = Enumerable.Range(1, instance.NumberOfClients)
+                                .OrderBy(_ => _rnd.Next())
+                                .ToList();
         var routes = new List<List<int>>();
-        double currentLoad = 0;
+        double load = 0;
         var route = new List<int> { 0 };
 
-        foreach (var client in clients)
+        foreach (var c in clients)
         {
-            if (currentLoad + instance.ClientDemand[client - 1] <= instance.VehiclesCapacity)
+            var demand = instance.ClientDemand[c - 1];
+            if (load + demand <= instance.VehiclesCapacity)
             {
-                route.Add(client);
-                currentLoad += instance.ClientDemand[client - 1];
+                route.Add(c);
+                load += demand;
             }
             else
             {
                 route.Add(0);
                 routes.Add(route);
-                route = [0, client];
-                currentLoad = instance.ClientDemand[client - 1];
+                route = new List<int> { 0, c };
+                load = demand;
             }
         }
         route.Add(0);
@@ -61,103 +115,127 @@ public class GeneticAlgorithm(ProblemData instance)
         return routes;
     }
 
-    private List<List<List<int>>> Evolve(List<List<List<int>>> population)
+    private List<List<int>> Crossover(List<List<int>> p1, List<List<int>> p2)
     {
-        var newPopulation = new List<List<List<int>>>();
-        for (int i = 0; i < population.Count; i++)
-        {
-            var parent1 = TournamentSelection(population);
-            var parent2 = TournamentSelection(population);
-            var offspring = Crossover(parent1, parent2);
+        var chr1 = p1.SelectMany(r => r.Skip(1).Take(r.Count - 2)).ToList();
+        var chr2 = p2.SelectMany(r => r.Skip(1).Take(r.Count - 2)).ToList();
+        int size = chr1.Count;
+        int a = _rnd.Next(size);
+        int b = _rnd.Next(size);
+        int start = Math.Min(a, b);
+        int end = Math.Max(a, b);
 
-            if (_random.NextDouble() < _mutationRate)
-            {
-                Mutate(offspring);
-            }
-            newPopulation.Add(offspring);
+        var childChr = new int[size];
+        for (int i = start; i <= end; i++) childChr[i] = chr1[i];
+        int idx = 0;
+        for (int i = 0; i < size; i++)
+        {
+            if (i >= start && i <= end) continue;
+            while (childChr.Contains(chr2[idx])) idx++;
+            childChr[i] = chr2[idx++];
         }
-        return newPopulation;
-    }
 
-    private List<List<int>> TournamentSelection(List<List<List<int>>> population)
-    {
-        int tournamentSize = 5;
-        var tournament = new List<List<List<int>>>();
-        for (int i = 0; i < tournamentSize; i++)
+        var offspring = new List<List<int>>();
+        double load2 = 0;
+        var route = new List<int> { 0 };
+        foreach (int client in childChr)
         {
-            tournament.Add(population[_random.Next(population.Count)]);
-        }
-        return tournament.OrderBy(CalculateFitness).First();
-    }
-
-    private List<List<int>> Crossover(List<List<int>> parent1, List<List<int>> parent2)
-    {
-        int splitPoint = _random.Next(1, parent1.Count - 1);
-        var offspring = parent1.Take(splitPoint).ToList();
-        var remaining = parent2.SelectMany(route => route.Skip(1).Take(route.Count - 2)).Except(offspring.SelectMany(r => r)).ToList();
-
-        var newRoute = new List<int> { 0 };
-        double currentLoad = 0;
-        foreach (var client in remaining)
-        {
-            if (currentLoad + instance.ClientDemand[client - 1] <= instance.VehiclesCapacity)
+            var demand = instance.ClientDemand[client - 1];
+            if (load2 + demand <= instance.VehiclesCapacity)
             {
-                newRoute.Add(client);
-                currentLoad += instance.ClientDemand[client - 1];
+                route.Add(client);
+                load2 += demand;
             }
             else
             {
-                newRoute.Add(0);
-                offspring.Add(newRoute);
-                newRoute = new List<int> { 0, client };
-                currentLoad = instance.ClientDemand[client - 1];
+                route.Add(0);
+                offspring.Add(route);
+                route = new List<int> { 0, client };
+                load2 = demand;
             }
         }
-        newRoute.Add(0);
-        offspring.Add(newRoute);
+        route.Add(0);
+        offspring.Add(route);
         return offspring;
     }
 
-    private void Mutate(List<List<int>> solution)
+    private void Mutate(List<List<int>> sol)
     {
-        int routeIndex = _random.Next(solution.Count);
-        var route = solution[routeIndex];
-        if (route.Count > 3)
+        var ri = _rnd.Next(sol.Count);
+        var route = sol[ri];
+        if (route.Count > 4)
         {
-            int i = _random.Next(1, route.Count - 2);
-            int j = _random.Next(1, route.Count - 2);
+            int i = _rnd.Next(1, route.Count - 2);
+            int j = _rnd.Next(1, route.Count - 2);
             (route[i], route[j]) = (route[j], route[i]);
         }
     }
 
-    private double CalculateFitness(List<List<int>> solution)
+    private List<int> TwoOpt(List<int> route)
     {
-        double totalDistance = 0;
-        foreach (var route in solution)
+        bool improved = true;
+        var best = new List<int>(route);
+        double bestDist = RouteDistance(best);
+
+        while (improved)
         {
-            for (int i = 0; i < route.Count - 1; i++)
+            improved = false;
+            for (int i = 1; i < best.Count - 2; i++)
             {
-                totalDistance += instance.Distances[route[i], route[i + 1]];
+                for (int j = i + 1; j < best.Count - 1; j++)
+                {
+                    var cand = TwoOptSwap(best, i, j);
+                    double dist = RouteDistance(cand);
+                    if (dist < bestDist)
+                    {
+                        best = cand;
+                        bestDist = dist;
+                        improved = true;
+                        break;
+                    }
+                }
+                if (improved) break;
             }
         }
-        return totalDistance;
+        return best;
     }
 
-    private void CalculateTotalDistance(List<List<int>> solution)
+    private List<int> TwoOptSwap(List<int> route, int i, int j)
     {
-        double totalDistance = CalculateFitness(solution);
-        Console.WriteLine($"Distância total percorrida: {totalDistance}");
+        var nr = new List<int>();
+        nr.AddRange(route.Take(i));
+        nr.AddRange(route.GetRange(i, j - i + 1).AsEnumerable().Reverse());
+        nr.AddRange(route.Skip(j + 1));
+        return nr;
     }
 
-    private void PrintSolution(List<List<int>> solution)
+    private double RouteDistance(List<int> route)
     {
-        Console.WriteLine("\n--------------------------------------------------------");
-        Console.WriteLine("Melhor solução encontrada (Algorítmo Genético):");
-        for (int i = 0; i < solution.Count; i++)
-        {
-            Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", solution[i])}");
-        }
+        double d = 0;
+        for (int i = 0; i < route.Count - 1; i++)
+            d += instance.Distances[route[i], route[i + 1]];
+        return d;
+    }
 
-        CalculateTotalDistance(solution);
+    private List<List<int>> TournamentSelect(List<List<List<int>>> pop)
+    {
+        var tour = new List<List<List<int>>>();
+        for (int i = 0; i < _tournamentSize; i++)
+            tour.Add(pop[_rnd.Next(pop.Count)]);
+        return tour.OrderBy(CalculateFitness)
+                   .Take(2)
+                   .OrderBy(_ => _rnd.NextDouble())
+                   .First();
+    }
+
+    private double CalculateFitness(List<List<int>> sol) => sol.Sum(RouteDistance);
+
+    private List<List<int>> CloneSolution(List<List<int>> sol)
+        => sol.Select(r => new List<int>(r)).ToList();
+
+    private void PrintRoutes(List<List<int>> routes)
+    {
+        for (int i = 0; i < routes.Count; i++)
+            Console.WriteLine($"Rota {i + 1}: {string.Join(" → ", routes[i])}");
     }
 }
