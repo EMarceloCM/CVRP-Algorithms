@@ -1,69 +1,85 @@
-﻿using CVRP.Utils;
+using CVRP.Utils;
 
 namespace CVRP.Ant_Colony;
 
 public class AntColonyOptimization
 {
-    private ProblemData instance;
-    private int _numAnts;
-    private int _iterations;
-    private double _alpha; // Influência do feromônio
-    private double _beta;  // Influência da heurística (1/distância)
-    private double _evaporationRate;
-    private double _pheromoneInit;
+    private readonly ProblemData _instance;
+    private readonly int _numAnts;
+    private readonly int _iterations;
+    private readonly double _alpha;
+    private readonly double _beta;
+    private readonly double _evaporationRate;
+    private readonly double _pheromoneInit;
+    private readonly double _pheromoneMin;
+    private readonly double _pheromoneMax;
+    private readonly int _candidateSize;
     private double[,] _pheromone;
-    private Random _random = new();
+    private readonly Random _rnd = new();
 
-    public AntColonyOptimization(ProblemData instance, int numAnts = 20, int iterations = 100, double alpha = 1.0, double beta = 2.0, double evaporationRate = 0.1, double pheromoneInit = 1.0)
+    public AntColonyOptimization(
+        ProblemData instance,
+        int numAnts = 20,
+        int iterations = 100,
+        double alpha = 1.0,
+        double beta = 2.0,
+        double evaporationRate = 0.1,
+        double pheromoneInit = 1.0,
+        int candidateSize = 15)
     {
-        this.instance = instance;
+        _instance = instance;
         _numAnts = numAnts;
         _iterations = iterations;
         _alpha = alpha;
         _beta = beta;
         _evaporationRate = evaporationRate;
         _pheromoneInit = pheromoneInit;
-        _pheromone = new double[instance.NumberOfClients + 1, instance.NumberOfClients + 1];
+        _candidateSize = candidateSize;
 
+        _pheromoneMax = pheromoneInit;
+        _pheromoneMin = pheromoneInit * 0.1;
+
+        _pheromone = new double[instance.NumberOfClients + 1, instance.NumberOfClients + 1];
         InitializePheromones();
     }
 
     private void InitializePheromones()
     {
-        for (int i = 0; i <= instance.NumberOfClients; i++)
-        {
-            for (int j = 0; j <= instance.NumberOfClients; j++)
-            {
+        for (int i = 0; i <= _instance.NumberOfClients; i++)
+            for (int j = 0; j <= _instance.NumberOfClients; j++)
                 _pheromone[i, j] = _pheromoneInit;
-            }
-        }
     }
 
     public List<List<int>>? FindSolution()
     {
         List<List<int>>? bestSolution = null;
         double bestDistance = double.MaxValue;
+        double previousBest = double.MaxValue;
 
-        for (int iteration = 0; iteration < _iterations; iteration++)
+        for (int iter = 0; iter < _iterations; iter++)
         {
             var allSolutions = new List<List<List<int>>>();
 
             for (int ant = 0; ant < _numAnts; ant++)
             {
-                var solution = ConstructSolution();
-                allSolutions.Add(solution);
+                var sol = ConstructSolution();
+                allSolutions.Add(sol);
+                double dist = CalculateTotalDistance(sol);
 
-                double distance = CalculateTotalDistance(solution);
-                if (distance < bestDistance)
+                if (dist < bestDistance)
                 {
-                    bestDistance = distance;
-                    bestSolution = solution;
+                    bestDistance = dist;
+                    bestSolution = sol;
                 }
             }
 
             UpdatePheromones(allSolutions);
 
-            // Console.WriteLine($"Iteration {iteration + 1}/{_iterations}, Best Distance: {bestDistance}");
+            if (bestDistance < previousBest)
+            {
+                previousBest = bestDistance;
+                Console.WriteLine($"Iteration {iter + 1}/{_iterations}, Best Distance: {bestDistance:F2}");
+            }
         }
 
         PrintSolution(bestSolution);
@@ -73,130 +89,138 @@ public class AntColonyOptimization
     private List<List<int>> ConstructSolution()
     {
         var solution = new List<List<int>>();
-        var unvisited = new HashSet<int>(Enumerable.Range(1, instance.NumberOfClients));
+        var unvisited = new HashSet<int>(Enumerable.Range(1, _instance.NumberOfClients));
 
-        while (unvisited.Count != 0)
+        while (unvisited.Count > 0)
         {
             var route = ConstructRoute(unvisited);
             solution.Add(route);
         }
-
         return solution;
     }
 
     private List<int> ConstructRoute(HashSet<int> unvisited)
     {
         var route = new List<int> { 0 };
-        double currentLoad = 0;
-        int currentNode = 0;
+        double load = 0;
+        int current = 0;
 
-        while (unvisited.Count != 0)
+        while (unvisited.Count > 0)
         {
-            var nextNode = SelectNextNode(currentNode, unvisited);
-            if (nextNode == -1 || currentLoad + instance.ClientDemand[nextNode - 1] > instance.VehiclesCapacity)
-            {
+            int next = SelectNextNode(current, unvisited);
+            if (next == -1 || load + _instance.ClientDemand[next - 1] > _instance.VehiclesCapacity)
                 break;
-            }
 
-            route.Add(nextNode);
-            currentLoad += instance.ClientDemand[nextNode - 1];
-            unvisited.Remove(nextNode);
-            currentNode = nextNode;
+            route.Add(next);
+            load += _instance.ClientDemand[next - 1];
+            unvisited.Remove(next);
+            current = next;
         }
-
         route.Add(0);
-        return route;
+        return TwoOptRoute(route);
     }
 
-    private int SelectNextNode(int currentNode, HashSet<int> unvisited)
+    private int SelectNextNode(int current, HashSet<int> unvisited)
     {
-        var probabilities = new List<(int node, double probability)>();
-        double denominator = 0;
-
-        foreach (var nextNode in unvisited)
+        // Calcular scores
+        var scores = new List<(int node, double score)>();
+        foreach (var n in unvisited)
         {
-            double pheromone = Math.Pow(_pheromone[currentNode, nextNode], _alpha);
-            double heuristic = Math.Pow(1.0 / instance.Distances[currentNode, nextNode], _beta);
-            double probability = pheromone * heuristic;
-            probabilities.Add((nextNode, probability));
-            denominator += probability;
+            double tau = Math.Pow(_pheromone[current, n], _alpha);
+            double eta = Math.Pow(1.0 / _instance.Distances[current, n], _beta);
+            scores.Add((n, tau * eta));
         }
 
-        if (denominator == 0)
+        if (scores.Count == 0) return -1;
+
+        // Lista de candidatos
+        var candidates = scores
+            .OrderByDescending(x => x.score)
+            .Take(_candidateSize)
+            .ToList();
+
+        double sum = candidates.Sum(x => x.score);
+        if (sum <= 0) return -1;
+
+        double pick = _rnd.NextDouble() * sum;
+        double cum = 0;
+
+        foreach (var (node, sc) in candidates)
         {
-            return -1;
+            cum += sc;
+            if (pick <= cum) return node;
         }
-
-        double randomValue = _random.NextDouble();
-        double cumulative = 0;
-
-        foreach (var (node, probability) in probabilities)
-        {
-            cumulative += probability / denominator;
-            if (randomValue <= cumulative)
-            {
-                return node;
-            }
-        }
-
-        return probabilities.Last().node;
+        return candidates.Last().node;
     }
 
     private void UpdatePheromones(List<List<List<int>>> allSolutions)
     {
-        for (int i = 0; i <= instance.NumberOfClients; i++)
-        {
-            for (int j = 0; j <= instance.NumberOfClients; j++)
-            {
-                _pheromone[i, j] *= (1 - _evaporationRate);
-            }
-        }
+        // Evaporação com limites
+        for (int i = 0; i <= _instance.NumberOfClients; i++)
+            for (int j = 0; j <= _instance.NumberOfClients; j++)
+                _pheromone[i, j] = Math.Max(_pheromoneMin, _pheromone[i, j] * (1 - _evaporationRate));
 
-        foreach (var solution in allSolutions)
-        {
-            double distance = CalculateTotalDistance(solution);
-            double contribution = 1.0 / distance;
+        // Reforço apenas top-K formigas
+        var bestSols = allSolutions
+            .Select(sol => (sol, dist: CalculateTotalDistance(sol)))
+            .OrderBy(x => x.dist)
+            .Take(Math.Min(10, allSolutions.Count));
 
-            foreach (var route in solution)
+        foreach (var (sol, dist) in bestSols)
+        {
+            double delta = 1.0 / dist;
+            foreach (var route in sol)
             {
-                for (int k = 0; k < route.Count - 1; k++)
+                var improved = TwoOptRoute(route);
+                for (int k = 0; k < improved.Count - 1; k++)
                 {
-                    int from = route[k];
-                    int to = route[k + 1];
-                    _pheromone[from, to] += contribution;
+                    int a = improved[k], b = improved[k + 1];
+                    _pheromone[a, b] = Math.Min(_pheromoneMax, _pheromone[a, b] + delta);
                 }
             }
         }
     }
 
-    private double CalculateTotalDistance(List<List<int>> solution)
+    private List<int> TwoOptRoute(List<int> route)
     {
-        double totalDistance = 0;
-
-        foreach (var route in solution)
+        // Aplica 2-opt até a primeira melhora
+        for (int i = 1; i < route.Count - 2; i++)
         {
-            for (int i = 0; i < route.Count - 1; i++)
+            for (int j = i + 1; j < route.Count - 1; j++)
             {
-                totalDistance += instance.Distances[route[i], route[i + 1]];
+                var candidate = route.Take(i)
+                    .Concat(route.GetRange(i, j - i + 1).AsEnumerable().Reverse())
+                    .Concat(route.Skip(j + 1))
+                    .ToList();
+                if (CalculateRouteDistance(candidate) < CalculateRouteDistance(route))
+                    return candidate;
             }
         }
-
-        return totalDistance;
+        return route;
     }
 
-    private void PrintSolution(List<List<int>>? solution)
+    private double CalculateTotalDistance(List<List<int>> sol)
     {
-        if (solution == null) return;
+        double total = 0;
+        foreach (var route in sol)
+            total += CalculateRouteDistance(route);
+        return total;
+    }
 
-        Console.WriteLine("\n--------------------------------------------------------");
-        Console.WriteLine("Melhor solução encontrada (Colônia de Formigas):");
+    private double CalculateRouteDistance(List<int> route)
+    {
+        double d = 0;
+        for (int i = 0; i < route.Count - 1; i++)
+            d += _instance.Distances[route[i], route[i + 1]];
+        return d;
+    }
 
-        for (int i = 0; i < solution.Count; i++)
-        {
-            Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", solution[i])}");
-        }
-
-        double totalDistance = CalculateTotalDistance(solution);
-        Console.WriteLine($"Distância total percorrida: {totalDistance}");
+    private void PrintSolution(List<List<int>>? sol)
+    {
+        if (sol == null) return;
+        Console.WriteLine("\n--- Best Ant Colony Solution ---");
+        for (int i = 0; i < sol.Count; i++)
+            Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", sol[i])}");
+        Console.WriteLine($"Distância total percorrida: {CalculateTotalDistance(sol):F2}");
     }
 }
