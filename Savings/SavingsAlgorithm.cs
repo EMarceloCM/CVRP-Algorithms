@@ -1,4 +1,4 @@
-﻿using CVRP.Utils;
+using CVRP.Utils;
 
 namespace CVRP.Savings;
 
@@ -16,50 +16,78 @@ public class SavingsAlgorithm(ProblemData instance)
 
         HashSet<int> visitedClients = [];
 
-        for (int x = 0; x <= instance.NumberOfVehicles; x++)
+        for (int x = 0; x < instance.NumberOfVehicles; x++)
         {
             routes.Add([]);
-            routes[x].Add(0); //veículo x sai da base
+            routes[x].Add(0); // veículo x sai da base
             double remainingCapacity = instance.VehiclesCapacity;
-            
+
+            Console.WriteLine($"\nConstruindo rota do veículo {x + 1}:");
+            Console.WriteLine($"Estado inicial: {string.Join(" -> ", routes[x])} (capacidade restante: {remainingCapacity})");
+
             foreach (var (economy, i, j) in savingsList)
             {
                 if (visitedClients.Contains(i) && visitedClients.Contains(j))
                     continue;
 
-                if(!visitedClients.Contains(i) && !visitedClients.Contains(j) && instance.ClientDemand[i==0 ? 0 : i-1] + instance.ClientDemand[j == 0 ? 0 : j - 1] <= remainingCapacity)
+                // tenta adicionar par (i,j)
+                if (!visitedClients.Contains(i) && !visitedClients.Contains(j)
+                    && instance.ClientDemand[i == 0 ? 0 : i - 1] + instance.ClientDemand[j == 0 ? 0 : j - 1] <= remainingCapacity)
                 {
                     routes[x].Add(i);
                     routes[x].Add(j);
-                    remainingCapacity -= instance.ClientDemand[i == 0 ? 0 : i - 1] + instance.ClientDemand[j == 0 ? 0 : j - 1];
+                    remainingCapacity -= instance.ClientDemand[i == 0 ? 0 : i - 1]
+                                      + instance.ClientDemand[j == 0 ? 0 : j - 1];
                     visitedClients.Add(i);
                     visitedClients.Add(j);
+
+                    Console.WriteLine(
+                        $"Adicionado par ({i}, {j}); rota agora: {string.Join(" -> ", routes[x])} " +
+                        $"(capacidade restante: {remainingCapacity})");
                 }
-                else if (!visitedClients.Contains(i) && !visitedClients.Contains(j) && instance.ClientDemand[i == 0 ? 0 : i - 1] + instance.ClientDemand[j == 0 ? 0 : j - 1] > remainingCapacity)
+                else if (!visitedClients.Contains(i) && !visitedClients.Contains(j)
+                         && instance.ClientDemand[i == 0 ? 0 : i - 1] + instance.ClientDemand[j == 0 ? 0 : j - 1] > remainingCapacity)
                 {
+                    // sem capacidade para o par inteiro
                     continue;
                 }
-                else if (!visitedClients.Contains(i) && instance.ClientDemand[i == 0 ? 0 : i - 1] <= remainingCapacity)
+                else if (!visitedClients.Contains(i)
+                         && instance.ClientDemand[i == 0 ? 0 : i - 1] <= remainingCapacity)
                 {
                     routes[x].Add(i);
                     remainingCapacity -= instance.ClientDemand[i == 0 ? 0 : i - 1];
                     visitedClients.Add(i);
+
+                    Console.WriteLine(
+                        $"Adicionado i = {i}; rota agora: {string.Join(" -> ", routes[x])} " +
+                        $"(capacidade restante: {remainingCapacity})");
                 }
-                else if (!visitedClients.Contains(j) && instance.ClientDemand[j == 0 ? 0 : j - 1] <= remainingCapacity)
+                else if (!visitedClients.Contains(j)
+                         && instance.ClientDemand[j == 0 ? 0 : j - 1] <= remainingCapacity)
                 {
                     routes[x].Add(j);
                     remainingCapacity -= instance.ClientDemand[j == 0 ? 0 : j - 1];
                     visitedClients.Add(j);
+
+                    Console.WriteLine(
+                        $"Adicionado j = {j}; rota agora: {string.Join(" -> ", routes[x])} " +
+                        $"(capacidade restante: {remainingCapacity})");
                 }
             }
+
+            // fecha a rota
             routes[x].Add(0);
+            Console.WriteLine($"Finalizada rota do veículo {x + 1}: {string.Join(" -> ", routes[x])}");
         }
 
+        // clientes remanescentes
         for (int client = 1; client <= instance.NumberOfClients; client++)
         {
             if (!visitedClients.Contains(client))
             {
-                routes.Add([0, client, 0]);
+                routes.Add(new List<int> { 0, client, 0 });
+                Console.WriteLine(
+                    $"\nCliente isolado {client} gerou rota: {string.Join(" -> ", routes.Last())}");
             }
         }
 
@@ -67,9 +95,10 @@ public class SavingsAlgorithm(ProblemData instance)
         Console.WriteLine("Rotas geradas (heurística de economias):");
         for (int vehicle = 0; vehicle < routes.Count; vehicle++)
         {
-            if (routes[vehicle].All(client => client == 0)) continue;
+            if (routes[vehicle].All(c => c == 0)) continue;
             Console.WriteLine($"Rota {vehicle + 1}: {string.Join(" -> ", routes[vehicle])}");
         }
+
         CalculateTotalDistance(routes);
 
         return routes;
@@ -82,7 +111,6 @@ public class SavingsAlgorithm(ProblemData instance)
             for (int j = 0; j < instance.Distances.GetLength(1); j++)
             {
                 if (i == j) continue;
-
                 saved[i, j] = instance.Distances[0, i] + instance.Distances[0, j] - instance.Distances[i, j];
             }
         }
@@ -96,7 +124,7 @@ public class SavingsAlgorithm(ProblemData instance)
             }
         }
 
-        savingsList = [.. savingsList.OrderByDescending(s => s.economy)];
+        savingsList = savingsList.OrderByDescending(s => s.economy).ToList();
 
         Console.WriteLine("--------------------------------------------------------");
         Console.WriteLine("Economias ordenadas de forma decrescente:");
