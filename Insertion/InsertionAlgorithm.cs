@@ -1,10 +1,10 @@
 using CVRP.Utils;
 
-namespace CVRP.Insertion;
+namespace CVRP.Nearest_Neighbor;
 
-public class InsertionAlgorithm(ProblemData instace)
+public class NearestNeighborAlgorithm(ProblemData instance)
 {
-    private readonly ProblemData instance = instace;
+    private readonly ProblemData instance = instance;
     private readonly List<List<int>> routes = [];
 
     public List<List<int>> Solve()
@@ -14,89 +14,52 @@ public class InsertionAlgorithm(ProblemData instace)
         while (clientsNotRouted.Count != 0)
         {
             var route = new List<int> { 0 };
-            int initialClient = SelectInitialClient(clientsNotRouted);
-            route.Add(initialClient);
-            route.Add(0);
-
-            clientsNotRouted.Remove(initialClient);
+            double currentLoad = 0;
 
             while (clientsNotRouted.Count != 0)
             {
-                (int bestClient, int bestPosition) = FindBestInsertion(route, clientsNotRouted);
+                int nearestClient = FindNearestNeighbor(route.Last(), clientsNotRouted, currentLoad);
+                if (nearestClient == -1) break;
 
-                if (bestClient == -1) break;
+                if (currentLoad + instance.ClientDemand[nearestClient != 0 ? nearestClient - 1 : 0] > instance.VehiclesCapacity)
+                    break;
 
-                route.Insert(bestPosition, bestClient);
-                clientsNotRouted.Remove(bestClient);
+                route.Add(nearestClient);
+                currentLoad += instance.ClientDemand[nearestClient != 0 ? nearestClient - 1 : 0];
+                clientsNotRouted.Remove(nearestClient);
             }
 
+            route.Add(0);
             routes.Add(route);
         }
 
-        while (clientsNotRouted.Count != 0)
+        PrintRoutes();
+        CalculateTotalDistance();
+        return routes;
+    }
+
+    private int FindNearestNeighbor(int currentClient, HashSet<int> clientsNotRouted, double currentLoad)
+    {
+        var nearest = clientsNotRouted.OrderBy(i => instance.Distances[currentClient, i]).FirstOrDefault();
+        HashSet<int> aux = [.. clientsNotRouted];
+
+        while (currentLoad + instance.ClientDemand[nearest != 0 ? nearest - 1 : 0] > instance.VehiclesCapacity && aux.Count > 0)
         {
-            foreach (var route in routes)
-            {
-                var remainingClients = clientsNotRouted.ToList();
-                foreach (var client in remainingClients)
-                {
-                    if (CanInsert(route, client))
-                    {
-                        route.Insert(route.Count - 1, client);
-                        clientsNotRouted.Remove(client);
-                    }
-                }
-            }
+            aux.Remove(nearest);
+            nearest = aux.OrderBy(i => instance.Distances[currentClient, i]).FirstOrDefault();
         }
 
+        return nearest;
+    }
+
+    private void PrintRoutes()
+    {
         Console.WriteLine("\n--------------------------------------------------------");
-        Console.WriteLine("Rotas geradas (heurística de inserção):");
+        Console.WriteLine("Rotas geradas (Nearest Neighbor Modified):");
         for (int i = 0; i < routes.Count; i++)
         {
             Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", routes[i])}");
         }
-        CalculateTotalDistance();
-
-        return routes;
-    }
-
-    private int SelectInitialClient(HashSet<int> clientsNotRouted)
-    {
-        return clientsNotRouted.OrderByDescending(i => instance.Distances[0, i]).First();
-    }
-
-    private (int client, int position) FindBestInsertion(List<int> route, HashSet<int> clientsNotRouted)
-    {
-        double bestCost = double.MaxValue;
-        int bestClient = -1;
-        int bestPosition = -1;
-
-        foreach (var client in clientsNotRouted)
-        {
-            for (int i = 0; i < route.Count - 1; i++)
-            {
-                double additionalCost = CalculateInsertionCost(route[i], client, route[i + 1]);
-                if (additionalCost < bestCost && CanInsert(route, client))
-                {
-                    bestCost = additionalCost;
-                    bestClient = client;
-                    bestPosition = i + 1;
-                }
-            }
-        }
-
-        return (bestClient, bestPosition);
-    }
-
-    private double CalculateInsertionCost(int from, int client, int to)
-    {
-        return instance.Distances[from, client] + instance.Distances[client, to] - instance.Distances[from, to];
-    }
-
-    private bool CanInsert(List<int> route, int client)
-    {
-        double currentLoad = route.Where(i => i != 0).Sum(i => instance.ClientDemand[i - 1]);
-        return (currentLoad + instance.ClientDemand[client - 1]) <= instance.VehiclesCapacity;
     }
 
     private void CalculateTotalDistance()
