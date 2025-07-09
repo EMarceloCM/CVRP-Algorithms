@@ -1,4 +1,4 @@
-﻿using CVRP.Utils;
+using CVRP.Utils;
 
 namespace CVRP.Insertion;
 
