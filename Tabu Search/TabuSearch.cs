@@ -23,7 +23,7 @@ namespace CVRP.Tabu_Search
     public class TabuSearch
     {
         private ProblemData instance;
-        private int tabuTenure = 50;
+        private int tabuTenure = 100;
         private int maxIterations = 1000;
         private Dictionary<MoveKey, int> tabuList = new Dictionary<MoveKey, int>();
 
@@ -37,6 +37,7 @@ namespace CVRP.Tabu_Search
             var best = GenerateInitialSolution();
             var current = CloneSolution(best);
             double bestCost = CalculateTotalDistance(best);
+            double prevBestCost = double.MaxValue;
 
             for (int iter = 0; iter < maxIterations; iter++)
             {
@@ -51,11 +52,17 @@ namespace CVRP.Tabu_Search
                 {
                     best = CloneSolution(next);
                     bestCost = nextCost;
+
+                    // Imprime evolução quando há melhoria
+                    Console.WriteLine($"Iteração {iter + 1}/{maxIterations} - Nova melhor distância: {bestCost:F2}");
+                    PrintSolution(best);
                 }
 
+                // Atualiza lista tabu
                 tabuList[move] = iter + tabuTenure;
             }
 
+            Console.WriteLine("\n=== Solução Final Tabu Search ===");
             PrintSolution(best);
             return best;
         }
@@ -92,20 +99,22 @@ namespace CVRP.Tabu_Search
         private List<(List<List<int>> solution, MoveKey move)> GenerateNeighborhood(List<List<int>> current, double bestCost, int iter)
         {
             var moves = new List<(List<List<int>>, MoveKey)>();
-
             int R = current.Count;
+
             for (int r1 = 0; r1 < R; r1++)
             {
                 var route1 = current[r1];
                 int L1 = route1.Count;
+
                 for (int i = 1; i < L1 - 1; i++)
                 {
                     // Relocate
                     for (int r2 = 0; r2 < R; r2++)
                     {
+                        if (r1 == r2) continue;
                         var route2 = current[r2];
                         int L2 = route2.Count;
-                        if (r1 == r2) continue;
+
                         for (int j = 1; j < L2; j++)
                         {
                             var temp = CloneSolution(current);
@@ -113,39 +122,49 @@ namespace CVRP.Tabu_Search
                             temp[r1].RemoveAt(i);
                             temp[r2].Insert(j, client);
                             if (!IsValidSolution(temp)) continue;
+
                             var key = new MoveKey(MoveType.Relocate, r1, i, r2, j);
                             if (IsTabu(key, iter, CalculateTotalDistance(temp), bestCost)) continue;
+
                             moves.Add((temp, key));
                         }
                     }
+
                     // Swap
                     for (int r2 = r1; r2 < R; r2++)
                     {
                         var route2 = current[r2];
                         int L2 = route2.Count;
-                        int startJ = r1 == r2 ? i + 1 : 1;
+                        int startJ = (r1 == r2) ? i + 1 : 1;
+
                         for (int j = startJ; j < L2 - 1; j++)
                         {
                             var temp = CloneSolution(current);
                             (temp[r1][i], temp[r2][j]) = (temp[r2][j], temp[r1][i]);
                             if (!IsValidSolution(temp)) continue;
+
                             var key = new MoveKey(MoveType.Swap, r1, i, r2, j);
                             if (IsTabu(key, iter, CalculateTotalDistance(temp), bestCost)) continue;
+
                             moves.Add((temp, key));
                         }
                     }
+
                     // TwoOpt
                     for (int j = i + 2; j < L1 - 1; j++)
                     {
                         var temp = CloneSolution(current);
                         temp[r1].Reverse(i, j - i + 1);
                         if (!IsValidSolution(temp)) continue;
+
                         var key = new MoveKey(MoveType.TwoOpt, r1, i, r1, j);
                         if (IsTabu(key, iter, CalculateTotalDistance(temp), bestCost)) continue;
+
                         moves.Add((temp, key));
                     }
                 }
             }
+
             return moves;
         }
 
@@ -186,9 +205,10 @@ namespace CVRP.Tabu_Search
 
         private void PrintSolution(List<List<int>> sol)
         {
-            Console.WriteLine("\n----- Tabu Search Solution -----");
-            for (int i = 0; i < sol.Count; i++) Console.WriteLine($"Route {i + 1}: {string.Join(" -> ", sol[i])}");
-            Console.WriteLine($"Total distance: {CalculateTotalDistance(sol)}");
+            Console.WriteLine();
+            for (int i = 0; i < sol.Count; i++)
+                Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", sol[i])}");
+            Console.WriteLine($"Distância atual: {CalculateTotalDistance(sol):F2}\n");
         }
     }
 }
