@@ -11,13 +11,14 @@ namespace CVRP.ALNS
 
         public List<List<int>> AdaptiveLargeNeighborhoodSearch(
             ProblemData problemData,
-            int maxIterations = 10000000,
-            int maxNoImprovement = 2000000,
-            double initialTemperature = 5000.0,
-            double coolingRate = 0.7)
+            int maxIterations = 1500000,
+            int maxNoImprovement = 200000,
+            double initialTemperature = 10000.0,
+            double coolingRate = 0.999)
         {
             var currentSolution = GreedyInsertion(new List<List<int>>(), problemData, randomized: true);
             var bestSolution = CloneSolution(currentSolution);
+            double bestDistance = CalculateTotalDistance(bestSolution, problemData);
             double currentTemperature = initialTemperature;
             int noImprovementCounter = 0;
 
@@ -31,27 +32,34 @@ namespace CVRP.ALNS
                     AcceptSolution(currentSolution, candidate, currentTemperature, problemData))
                 {
                     currentSolution = CloneSolution(candidate);
-                    if (CalculateTotalDistance(currentSolution, problemData) <
-                        CalculateTotalDistance(bestSolution, problemData))
+                    double currentDistance = CalculateTotalDistance(currentSolution, problemData);
+                    if (currentDistance < bestDistance)
                     {
                         bestSolution = CloneSolution(currentSolution);
+                        bestDistance = currentDistance;
                         noImprovementCounter = 0;
+
+                        // Imprime evolução quando há melhoria
+                        Console.WriteLine($"Iteração {iter + 1}/{maxIterations} - Nova melhor distância: {bestDistance:F2}");
+                        PrintRoutes(bestSolution);
                     }
-                    else noImprovementCounter++;
+                    else
+                    {
+                        noImprovementCounter++;
+                    }
                 }
-                else noImprovementCounter++;
+                else
+                {
+                    noImprovementCounter++;
+                }
 
                 currentTemperature *= coolingRate;
             }
 
             // Impressão do resultado final
-            double totalDistance = CalculateTotalDistance(bestSolution, problemData);
-            Console.WriteLine("\n--------------------------------------------------------");
-            Console.WriteLine("Rotas geradas (ALNS):");
-            var filtered = bestSolution.Where(r => r.Count > 1 && r.Any(c => c != 0)).ToList();
-            for (int i = 0; i < filtered.Count; i++)
-                Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", filtered[i])}");
-            Console.WriteLine($"Distância total percorrida: {totalDistance}");
+            Console.WriteLine("\n--- Solução Final (ALNS) ---");
+            PrintRoutes(bestSolution);
+            Console.WriteLine($"Distância total percorrida: {bestDistance:F2}");
 
             return bestSolution;
         }
@@ -146,7 +154,12 @@ namespace CVRP.ALNS
             return dist;
         }
 
-        private List<List<int>> CloneSolution(List<List<int>> sol) =>
-            sol.Select(r => new List<int>(r)).ToList();
+        private List<List<int>> CloneSolution(List<List<int>> sol) => sol.Select(r => new List<int>(r)).ToList();
+
+        private void PrintRoutes(List<List<int>> sol)
+        {
+            for (int i = 0; i < sol.Count; i++)
+                Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", sol[i])}");
+        }
     }
 }
