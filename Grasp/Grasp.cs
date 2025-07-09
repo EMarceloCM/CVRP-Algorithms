@@ -1,4 +1,4 @@
-﻿using CVRP.Local_Search;
+using CVRP.Local_Search;
 using CVRP.Utils;
 
 namespace CVRP.Grasp;
@@ -7,12 +7,12 @@ public class Grasp
 {
     private Random _random = new();
 
-    public List<List<int>> Solve(ProblemData problemData, int maxIterations = 100, int maxLocalSearchIterations = 20)
+    public List<List<int>> Solve(ProblemData problemData, int maxIterations = 15000, int maxLocalSearchIterations = 10000)
     {
         List<List<int>> bestSolution = null;
         double bestCost = double.MaxValue;
 
-        for (int iteration = 0; iteration < maxIterations; iteration++)
+        for (int iteration = 1; iteration <= maxIterations; iteration++)
         {
             var greedySolution = ConstructGreedySolution(problemData);
             var improvedSolution = PerformLocalSearch(problemData, greedySolution, maxLocalSearchIterations);
@@ -22,22 +22,17 @@ public class Grasp
             {
                 bestSolution = improvedSolution;
                 bestCost = cost;
+
+                // Imprime evolução quando há melhoria
+                Console.WriteLine($"Iteração {iteration}/{maxIterations} - Novo melhor custo: {bestCost:F2}");
+                PrintRoutes(bestSolution, problemData);
             }
         }
 
-        Console.WriteLine("\n--------------------------------------------------------");
-        Console.WriteLine("Rotas geradas (GRASP):");
+        Console.WriteLine("\n--- Melhor solução final (GRASP) ---");
+        PrintRoutes(bestSolution, problemData);
+        Console.WriteLine($"Custo total: {bestCost:F2}");
 
-        for (int i = 0; i < bestSolution.Count; i++)
-        {
-            var route = bestSolution[i];
-            if (route.Count > 1 && route.All(client => client == 0))
-                continue;
-
-            Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", route)}");
-        }
-
-        Console.WriteLine($"Custo total: {bestCost}");
         return bestSolution;
     }
 
@@ -83,21 +78,26 @@ public class Grasp
     private List<List<int>> PerformLocalSearch(ProblemData problemData, List<List<int>> solution, int maxIterations)
     {
         var localSearch = new LocalSearch();
-        return localSearch.ImproveSolution(problemData, solution, "GRASP", maxIterations);
+        return localSearch.ImproveSolution(problemData, solution, maxIterations);
     }
 
     private double CalculateTotalCost(List<List<int>> solution, ProblemData problemData)
     {
         double totalCost = 0;
-
         foreach (var route in solution)
-        {
             for (int i = 0; i < route.Count - 1; i++)
-            {
                 totalCost += problemData.Distances[route[i], route[i + 1]];
-            }
-        }
-
         return totalCost;
+    }
+
+    private void PrintRoutes(List<List<int>> solution, ProblemData problemData)
+    {
+        for (int i = 0; i < solution.Count; i++)
+        {
+            var route = solution[i];
+            if (route.Count > 1 && route.All(client => client == 0))
+                continue;
+            Console.WriteLine($"Rota {i + 1}: {string.Join(" -> ", route)}");
+        }
     }
 }
