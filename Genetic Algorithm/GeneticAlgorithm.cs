@@ -9,10 +9,10 @@ public class GeneticAlgorithm
 {
     private readonly ProblemData instance;
     private readonly Random _rnd = new();
-    private readonly int _popSize = 10000;
-    private readonly int _generations = 9000;
-    private readonly double _mutationRate = 0.35;
-    private readonly int _eliteCount = 25;
+    private readonly int _popSize = 500;
+    private readonly int _generations = 8000;
+    private readonly double _mutationRate = 0.15;
+    private readonly int _eliteCount = 15;
     private readonly int _tournamentSize = 6;
 
     public GeneticAlgorithm(ProblemData instance)
