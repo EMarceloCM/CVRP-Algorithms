@@ -55,7 +55,7 @@ namespace CVRP.Tabu_Search
 
                     // Imprime evolução quando há melhoria
                     Console.WriteLine($"Iteração {iter + 1}/{maxIterations} - Nova melhor distância: {bestCost:F2}");
-                    PrintSolution(best);
+                    //PrintSolution(best);
                 }
 
                 // Atualiza lista tabu
