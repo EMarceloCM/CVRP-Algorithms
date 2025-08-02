@@ -8,21 +8,25 @@ namespace CVRP.GeneticAlgorithm;
 public class GeneticAlgorithm
 {
     private readonly ProblemData instance;
-    private readonly Random _rnd = new();
-    private readonly int _popSize = 500;
-    private readonly int _generations = 8000;
+    private Random _rnd;
+    private readonly int _popSize = 400;
+    private readonly int _generations = 3000;
     private readonly double _mutationRate = 0.15;
     private readonly int _eliteCount = 15;
     private readonly int _tournamentSize = 6;
 
-    public GeneticAlgorithm(ProblemData instance)
+    public GeneticAlgorithm(ProblemData instance, int seed = 2025)
     {
         this.instance = instance;
+        // Inicializa o Random com a semente informada ou padrão
+        _rnd = new Random(seed);
     }
 
     public List<List<int>> Solve()
     {
         var population = InitializePopulation();
+        _rnd = new Random();
+
         double prevBestDist = double.MaxValue;
 
         for (int gen = 0; gen < _generations; gen++)
@@ -61,7 +65,7 @@ public class GeneticAlgorithm
             if (bestDist < prevBestDist)
             {
                 Console.WriteLine($"\nGeração {gen + 1} - Nova melhor distância: {bestDist:F2}");
-                PrintRoutes(bestGen);
+                // PrintRoutes(bestGen);
                 prevBestDist = bestDist;
             }
         }
