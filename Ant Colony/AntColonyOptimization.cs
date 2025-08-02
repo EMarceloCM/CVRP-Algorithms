@@ -15,17 +15,18 @@ public class AntColonyOptimization
     private readonly double _pheromoneMax;
     private readonly int _candidateSize;
     private double[,] _pheromone;
-    private readonly Random _rnd = new();
+    private Random _rnd = new();
 
     public AntColonyOptimization(
         ProblemData instance,
-        int numAnts = 20,
-        int iterations = 100,
-        double alpha = 1.0,
-        double beta = 2.0,
-        double evaporationRate = 0.1,
-        double pheromoneInit = 1.0,
-        int candidateSize = 15)
+        int numAnts = 180,
+        int iterations = 120,
+        double alpha = 3.0,
+        double beta = 5.0,
+        double evaporationRate = 0.01,
+        double pheromoneInit = 25.0,
+        int candidateSize = 15,
+        int seed = 2025)
     {
         _instance = instance;
         _numAnts = numAnts;
@@ -40,6 +41,8 @@ public class AntColonyOptimization
         _pheromoneMin = pheromoneInit * 0.1;
 
         _pheromone = new double[instance.NumberOfClients + 1, instance.NumberOfClients + 1];
+
+        _rnd = new Random(seed);
         InitializePheromones();
     }
 
@@ -58,6 +61,8 @@ public class AntColonyOptimization
 
         for (int iter = 0; iter < _iterations; iter++)
         {
+            if (iter == 1) _rnd = new Random();
+
             var allSolutions = new List<List<List<int>>>();
 
             for (int ant = 0; ant < _numAnts; ant++)
