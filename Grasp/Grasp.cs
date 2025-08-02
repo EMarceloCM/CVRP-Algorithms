@@ -7,13 +7,21 @@ public class Grasp
 {
     private Random _random = new();
 
-    public List<List<int>> Solve(ProblemData problemData, int maxIterations = 15000, int maxLocalSearchIterations = 10000)
+    public Grasp(int seed = 2025)
+    {
+        _random = new Random(seed);
+    }
+
+    public List<List<int>> Solve(ProblemData problemData, int maxIterations = 60, int maxLocalSearchIterations = 10000)
     {
         List<List<int>> bestSolution = null;
         double bestCost = double.MaxValue;
 
         for (int iteration = 1; iteration <= maxIterations; iteration++)
         {
+            if (iteration == 2)
+                _random = new Random();
+
             var greedySolution = ConstructGreedySolution(problemData);
             var improvedSolution = PerformLocalSearch(problemData, greedySolution, maxLocalSearchIterations);
 
@@ -25,7 +33,7 @@ public class Grasp
 
                 // Imprime evolução quando há melhoria
                 Console.WriteLine($"Iteração {iteration}/{maxIterations} - Novo melhor custo: {bestCost:F2}");
-                PrintRoutes(bestSolution, problemData);
+                //PrintRoutes(bestSolution, problemData);
             }
         }
 
